@@ -24,8 +24,9 @@ mongoose.connect(process.env.DB_CONNECTION_STRING, { useNewUrlParser: true, useU
     })
     .then(async () => {
         // Cache loads some commonly used info from the database into memory
+        console.log('Populating cache, this might take a while...');
         await cache.populate();
-        console.log('Initialised cache');  
+        console.log('Cache populated');  
     })
     .catch(err => {
         console.error(`Couldn't initialise cache: ${err}`);
@@ -104,7 +105,7 @@ client.on('message', async message => {
             message.channel.send(embed.generate('disallowed', 'Administrators only', `Sorry <@${message.author.id}>, only administrators of this server can use this command.`));
             return;
         }
-        command.execute(message, args);
+        await command.execute(message, args);
     } catch(err) {
         message.channel.send(embed.generate('error', commandName, "Sorry, I couldn't execute that command :sweat: please try again later."));
         if(cache.guilds[message.guild.id].lastErrors.length > 4) {
@@ -114,4 +115,8 @@ client.on('message', async message => {
         console.error(`[${message.guild.id}/${commandName}]: Error executing command: ${err.name}`);
         console.error(err);
     }
+});
+
+process.on('unhandledRejection', error => {
+	if(error.name === 'DiscordAPIError') return;
 });

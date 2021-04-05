@@ -14,7 +14,7 @@ mongoose.connect(process.env.DB_CONNECTION_STRING, { useNewUrlParser: true, useU
 try {
     const data = fs.readFileSync('../words.txt', 'utf-8');
     data.toString().split('\n').forEach(line => {
-        if(line.length < 5) return;
+        if(line.length < 5 || line.length > 15) return;
         count++;
         words.push({
             word: line

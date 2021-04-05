@@ -2,32 +2,43 @@ const Discord = require('discord.js');
 const Hangman = require('../models/hangman');
 const { update } = require('../models/word');
 const Word = require('../models/word');
+const words = require('../cache').get('words');
 const embed = require('../modules/embed');
+const Chance = require('chance');
+const chance = new Chance();
 
 const activeGames = new Map();
 
 class HangmanGame {
-    constructor(message, word, options = {}) {
-        this.lastBotMessageID = false;
+    constructor(message, word) {
+        this.lastMessageID = false;
         this.message = message;
         this.guildID = message.guild.id;
         this.initiatingMemberID = message.author.id;
         this.avatarURL = message.author.avatarURL();
         this.word = word;
-        this.options = options;
         this.guessedLetters = [];
-        this.startingLives = 6;
-        this.livesLeft = 6;
+        this.remainingLetters = word.split('');
+        this.startingLives = 7;
+        this.livesLeft = 7;
         this.usedHint = false;
+        this.messageWaiting = false;
+        this.placeholders = {
+            unrevealedLetter: ':white_large_square:'
+        }
     }
 
-    messageHandler(message) {
+    async sendMessage(channel, msg) {
+        return await channel.send(msg);
+    }   
+
+    async messageHandler(message) {
         this.collector.resetTimer({ time: 60000 });
         if(message.content.length === 1 && /^[a-zA-Z]/.test(message.content)) {
             let letter = message.content.toLowerCase();
             if(this.guessedLetters.indexOf(letter) > -1) {
                 // Already guessed this letter
-                message.channel.send(`<@${message.author.id}>, you've already guessed :regional_indicator_${letter}: !`);
+                await this.sendMessage(message.channel, `<@${message.author.id}>, you've already guessed :regional_indicator_${letter}: !`);
                 return;
             }
             // Check the guess and update the game
@@ -51,23 +62,34 @@ class HangmanGame {
                 });
             } else {
                 // They've already used their hint
-                message.channel.send(`<@${message.author.id}>, you've already used up your hint for this game! No more hints! :angry:`);
+                await this.sendMessage(message.channel, `<@${message.author.id}>, you've already used up your hint for this game! No more hints! :angry:`);
             }
         }
         if(message.content.toLowerCase().startsWith('guess word ')) {
             let guess = message.content.substr('guess word '.length, message.content.length).trim();
             if(this.guessWord(guess)) {
-                this.end('WON');
+                await this.collector.stop('WON');
             } else {
                 this.update(message, {
                     guess: guess
                 });
             }
         }
+        if(message.content.toLowerCase() === '?hint' && message.member.hasPermission('ADMINISTRATOR')) {
+            await this.sendMessage(message.channel, `Hint generated: ${this.useHint()}`);
+        }
+        if(message.content.toLowerCase() === '?word' && message.member.hasPermission('ADMINISTRATOR')) {
+            await this.sendMessage(message.channel, `The word is: ${this.word}`);
+        }
+        if(message.content.toLowerCase() === '?state' && message.member.hasPermission('ADMINISTRATOR')) {
+            const reply = `**Word:** ${this.word}\n**Guessed letters:** ${this.guessedLetters}\n**Lives left:** ${this.livesLeft}\n**Hint used:** ${this.usedHint}`;
+            await this.sendMessage(message.channel, reply);
+        }
     }
 
     guess(letter) {
-        this.guessedLetters.push(letter.toLowerCase());
+        letter = letter.toLowerCase();
+        this.guessedLetters.push(letter);
         if(this.word.toLowerCase().indexOf(letter.toLowerCase()) > -1) return true;
         this.livesLeft -= 1;
         return false;
@@ -84,24 +106,49 @@ class HangmanGame {
 
     useHint() {
         this.usedHint = true;
-        const wordAsArray = this.word.split('');
-        let remainingLetters = wordAsArray.filter((letter) => {
-            return this.guessedLetters.indexOf(letter.toLowerCase()) < 0;
+        const lettersInWord = this.word.toLowerCase().split('').filter(letter => {
+            return this.guessedLetters.indexOf(letter) < 0;
         });
-        const i = Math.floor(Math.random() * wordAsArray.length)
-        const revealedLetter = wordAsArray[i];
-        this.guessedLetters.push(revealedLetter);
-        return revealedLetter;
+        if(lettersInWord.length < 1) return;
+        const letter = lettersInWord[chance.integer({ min: 0, max: lettersInWord.length - 1})];
+        this.guessedLetters.push(letter);
+        return letter;
     }
 
     calculateScore() {
-        const hintDeduction = (this.usedHint) ? 15 : 0;
-        return Math.ceil(50 + (this.livesLeft * 2 + (8 * (this.word.length / 2))) - hintDeduction);
+        const rawScore = Math.ceil(50 + (this.livesLeft * 2 + (8 * (this.word.length / 2))));
+        if(this.usedHint) {
+            return Math.ceil(rawScore * 0.75);
+        } else {
+            return rawScore;
+        }
     }
 
-    update(message, lastAction) {
+    async saveResult(score) {
+        let totalScore = score;
+        let gamesPlayed = 1;
+        try {
+            const existingPlayerRecord = await Hangman.findOne({ guildId: this.guildID, memberId: this.initiatingMemberID }, 'gamesPlayed totalScore').exec();
+            if(existingPlayerRecord) {
+                totalScore = totalScore + existingPlayerRecord.totalScore;
+                gamesPlayed = existingPlayerRecord.gamesPlayed + 1;
+            }
+            const playerRecord = await Hangman.findOneAndUpdate({ guildId: this.guildID, memberId: this.initiatingMemberID }, {
+                totalScore: totalScore,
+                gamesPlayed: gamesPlayed,
+                $push: {
+                    scores: score
+                }
+            }, { new: true, upsert: true });
+        } catch(err) {
+            console.error(err);
+        }
+    }
 
-        let description = `Welcome to hangman, <@${message.author.id}>!\n1. To guess, just type a letter e.g. 'B'\n2. If you think you know the word, say 'guess word [word]'\n3. If you're stuck, you can use a hint by saying 'hint', at the cost of a score penalty\n4. If you want to give up, just say 'I give up'\nIf you don't make a guess or use a hint within 1 minute, the game will end automatically.`;
+    async update(message, lastAction) {
+        if(this.messageWaiting) return;
+        this.messageWaiting = true;
+        let description = `Welcome to hangman, <@${message.author.id}>! For instructions, react with :grey_question:, :mag_right: for a hint or :flag_white: to give up`;
         if(lastAction) {
             if(lastAction.from === 'hint') {
                 description = `:sparkles: **Your hint revealed the letter :regional_indicator_${lastAction.letter.toLowerCase()}:!** :sparkles:`;
@@ -118,8 +165,8 @@ class HangmanGame {
             }
         }
         const wordAsArray = this.word.split('');
-        let word = ' ';
-        let lives = ' ';
+        let word = `${this.word.length} `;
+        let lives = `${this.livesLeft} `;
         let lettersGuessed;
         let hintStatus;
         let correctLetters = 0;
@@ -130,7 +177,7 @@ class HangmanGame {
                 word += `:regional_indicator_${letter.toLowerCase()}: `;
                 correctLetters++;
             } else {
-                word += ':white_large_square: ';
+                word += this.placeholders.unrevealedLetter + ' ';
             }
         }
 
@@ -162,6 +209,15 @@ class HangmanGame {
             return;
         }
 
+        if(this.lastMessageID) {
+            try {
+                const lastMessage = await message.channel.messages.fetch(this.lastMessageID);
+                lastMessage.delete();
+            } catch(err) {
+                console.error(err);
+            }
+        }
+
         hintStatus = (this.usedHint) ? "You've used your hint" : "Hint is available (just say 'hint'), but it'll lower your final score.";
         const reply = embed.generate('generic', `${message.author.username}'s hangman game`, description)
                         .addField('Word', word)
@@ -169,39 +225,79 @@ class HangmanGame {
                         .addField('Letters guessed', lettersGuessed || 'None yet', true )
                         .setFooter(hintStatus)
                         .setThumbnail(this.avatarURL);
-        message.channel.send(reply);
+        const sentMessage = await this.sendMessage(message.channel, reply);
+        this.messageWaiting = false;
+        this.lastMessageID = sentMessage.id;
+        sentMessage.react('❔');
+        if(!this.usedHint) {
+            sentMessage.react('🔎');
+        }
+        sentMessage.react('🏳️');
+        const reactionFilter = (reaction, user) => user.id === this.initiatingMemberID;
+        const reactionCollector = sentMessage.createReactionCollector(reactionFilter, { time: 90000 });
+        reactionCollector.on('collect', async (reaction, user) => {
+            if(reaction.emoji.name === '❔') {
+                const reply = '**__How to play hangman__**\n' +
+                            '1. Guess a letter by saying that letter, e.g. **B**\n' +
+                            '2. Guess the whole word by saying **guess word** *word*, e.g. **guess word tremor**\n' +
+                            '3. If you get stuck, you can reveal a letter by saying **hint** or reacting :mag_right: but your final score will be lower\n' +
+                            '4. Want to give up? Just say **I give up** or react :flag_white: \n\n' +
+                            'If you don\'t take any action within 90 seconds, the game will end automatically. Longer words are worth more points! You can choose the length of the word, just add a number to the command like .hangman **5**';
+                await this.sendMessage(message.channel, reply);
+            }
+            if(reaction.emoji.name === '🔎' && !this.usedHint) {
+                if(!this.usedHint) {
+                    // Reveal a letter and update the game
+                    const revealedLetter = this.useHint();
+                    this.update(this.message, {
+                        letter: revealedLetter,
+                        from: 'hint'
+                    });
+                } else {
+                    // They've already used their hint
+                    await this.sendMessage(message.channel, `<@${message.author.id}>, you've already used up your hint for this game! No more hints! :angry:`);
+                }
+            }
+            if(reaction.emoji.name === '🏳️') {
+                this.collector.stop('GAVE_UP');
+            }
+        });
     }
 
     start(message) {
         this.update(message);
         const filter = (m) => m.author.id === this.initiatingMemberID;
-        this.collector = message.channel.createMessageCollector(filter, { time: 60000 })
+        this.collector = message.channel.createMessageCollector(filter, { time: 90000 })
         this.collector.on('collect', message => {
             this.messageHandler(message);
         });
-        this.collector.on('end', (collected, reason) => {
-            this.end(reason);
+        this.collector.on('end', async (collected, reason) => {
+            await this.end(reason);
         });
     }
 
-    end(reason) {
+    async end(reason) {
         console.log('Hangman game ended: ' + reason);
         switch(reason) {
             case "GAVE_UP":
-                this.message.channel.send(`Giving up so soon, <@${this.initiatingMemberID}>? Well, the word was **${this.word}**! Come back soon.`);
+                await this.sendMessage(this.message.channel, `Giving up so soon, <@${this.initiatingMemberID}>? Well, the word was **${this.word}**!`);
+                await this.sendMessage(this.message.channel, `:question: Was this word too difficult, obscure or not really one word? Send **.flagword ${this.word}** to flag it for removal from my database.`);
             break;
 
             case "LOST":
-                this.message.channel.send(`Oh no <@${this.initiatingMemberID}>, you're out of lives :frowning2: that was a tough one, but I can tell you the word was **${this.word}** ! Better luck next time.`);
+                await this.saveResult(0);
+                await this.sendMessage(this.message.channel, `Oh no <@${this.initiatingMemberID}>, you're out of lives :frowning2: that was a tough one, but I can tell you the word was **${this.word}** ! Better luck next time.`);
+                await this.sendMessage(this.message.channel, `:question: Was this word too difficult, obscure or not really one word? Send **.flagword ${this.word}** to flag it for removal from my database.`);
             break;
 
             case "WON":
                 const score = this.calculateScore();
-                this.message.channel.send(`:partying_face: Yay <@${this.initiatingMemberID}>, you got the word: **${this.word}**! Well done. You've scored **${score}** points, and you solved it with ${this.livesLeft} lives remaining :partying_face:`);
+                await this.saveResult(score);
+                await this.sendMessage(this.message.channel, `:partying_face: Yay <@${this.initiatingMemberID}>, you got the word: **${this.word}**! Well done. You've scored **${score}** points, and you solved it with ${this.livesLeft} guesses remaining :partying_face:`);
             break;
 
             case "time":
-                this.message.channel.send(`Hey <@${this.initiatingMemberID}>, your hangman game has timed out due to inactivity.`);
+                await this.sendMessage(this.message.channel, `Hey <@${this.initiatingMemberID}>, your hangman game has timed out due to inactivity.`);
             break;
         }
         activeGames.delete(`${this.guildID}.${this.initiatingMemberID}`);
@@ -215,12 +311,25 @@ async function isAlreadyPlaying(guildID, memberID) {
 
 async function execute(message, args) {
     if(await isAlreadyPlaying(message.guild.id, message.author.id)) {
-        message.channel.send(`Hey <@${message.author.id}>, you're already playing a game of hangman! If you want to quit your current game, just say 'I give up'`);
+        this.sendMessage(message.channel, `Hey <@${message.author.id}>, you're already playing a game of hangman! If you want to quit your current game, just say 'I give up'`);
         return;
     }
     try {
-        const minWordLength = (Array.isArray(args) && args.length && !isNaN(parseInt(args[0]))) ? args[0] : 0;
-        const word = await Word.random(minWordLength);
+        let wordLength = false;
+        if(args[0] && !isNaN(args[0])) {
+            if(args[0] < words.lowest) {
+                this.sendMessage(message.channel, `Sorry <@${message.author.id}>, the shortest word length you can choose is **${words.lowest}** - wouldn't be fun if it was *too* easy!`);
+                return;
+            }
+            if(args[0] > words.highest) {
+                this.sendMessage(message.channel, `Sorry <@${message.author.id}>, the longest word length you can choose is **${words.highest}** (that's enough of a challenge, right?)`);
+                return;
+            }
+            wordLength = args[0];
+        }
+        const randomLength = wordLength || chance.integer({ min: words.lowest, max: words.highest });
+        const randomWord = chance.integer({ min: 0, max: words.list[randomLength].length - 1 });
+        const word = words.list[randomLength][randomWord];
         console.log('The word is: ' + word);
         const game = new HangmanGame(message, word);
         await activeGames.set(`${message.guild.id}.${message.author.id}`, game);
@@ -236,7 +345,7 @@ module.exports = {
 	description: embed.generate('generic', `:information_source: hangman`, 'Start a new game of hangman')
                     .addFields(
                         { name: 'Command', value: '.hangman' },
-                        { name: 'Options', value: ':grey_question:**wordlength** *Specify the minimum length of the word to guess (minimum 5, maximum 15). The default is a random length between these two values.*'},
+                        { name: 'Options', value: ':grey_question:**wordlength** *Specify the length of the word to guess. The default is random.*'},
                     ),
 	execute: execute
 };

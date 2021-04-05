@@ -22,9 +22,12 @@ wordSchema.static('random', async (length = 0) => {
     }
     if(word == null) {
         const words = await mongoose.model('Word').find(query, 'word').lean().exec();
+        console.log(words);
         if(words) {
             let random = Math.floor(Math.random() * words.length);
-            word = words[random];
+            word = {
+                word: words[random]
+            };
         }
     }
     return word.word || false;
