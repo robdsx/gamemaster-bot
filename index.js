@@ -105,6 +105,7 @@ client.on('message', async message => {
             message.channel.send(embed.generate('disallowed', 'Administrators only', `Sorry <@${message.author.id}>, only administrators of this server can use this command.`));
             return;
         }
+        console.log(`[${message.guild.id}] executing command: ${message}`);
         await command.execute(message, args);
     } catch(err) {
         message.channel.send(embed.generate('error', commandName, "Sorry, I couldn't execute that command :sweat: please try again later."));
