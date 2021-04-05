@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 
 const wordSchema = new mongoose.Schema({
     word: { type: String, required: true },
-    suppressed: { type: Boolean, default: false }
+    suppressed: { type: Boolean, default: false },
+    votesForRemoval: { type: Number, default: 0 }
 });
 
 wordSchema.static('random', async (length = 0) => {

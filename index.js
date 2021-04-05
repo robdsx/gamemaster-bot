@@ -29,7 +29,7 @@ mongoose.connect(process.env.DB_CONNECTION_STRING, { useNewUrlParser: true, useU
         console.log('Cache populated');  
     })
     .catch(err => {
-        console.error(`Couldn't initialise cache: ${err}`);
+        console.error(err);
     })
     .then(() => {
         // Load command handlers

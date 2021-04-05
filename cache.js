@@ -6,6 +6,7 @@ class Cache {
     async populate() {
         let guilds = await Guild.find({}).lean().exec();
         let wordList = await Word.find({ suppressed: false }).lean().exec();
+        console.log(wordList.length);
         this.guilds = {};
         this.words = {
             lowest: 1000,

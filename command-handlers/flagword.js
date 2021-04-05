@@ -23,13 +23,13 @@ async function execute(message, args) {
             } else {
                 result = 'VOTE_COUNTED';
             }
+            const wordRecord = await Word.findOneAndUpdate({ word: word }, {
+                suppressed: suppressed,
+                votesForRemoval: votesForRemoval
+            }, { new: true, upsert: true });
         } else {
             result = 'NO_SUCH_WORD';
         }
-        const wordRecord = await Word.findOneAndUpdate({ word: word }, {
-            suppressed: suppressed,
-            votesForRemoval: votesForRemoval
-        }, { new: true, upsert: true });
     } catch(err) {
         console.error(err);
     }
