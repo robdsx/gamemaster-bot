@@ -1,9 +1,34 @@
 const mongoose = require('mongoose');
+const Discord = require('discord.js');
 
 const wordSchema = new mongoose.Schema({
     word: { type: String, required: true },
     suppressed: { type: Boolean, default: false },
     votesForRemoval: { type: Number, default: 0 }
+});
+
+wordSchema.static('addWords', async(words) => {
+    await mongoose.model('Word').deleteMany({}).exec();
+    const result = mongoose.model('Word').insertMany(words);
+});
+
+wordSchema.static('cacheData', async function() {
+    const wordCache = {};
+    let shortestWordLength = Number.MAX_SAFE_INTEGER;
+    let longestWordLength = 0;
+    const words = await this.find({ suppressed: false }).lean().exec();
+    words.forEach(word => {
+        const length = word.word.length;
+        if(length > longestWordLength) longestWordLength = length;
+        if(length < shortestWordLength) shortestWordLength = length;
+        if(!wordCache.hasOwnProperty(length)) {
+            wordCache[length] = [];
+        }
+        wordCache[length].push(word.word);
+    });
+    wordCache.$shortest = shortestWordLength;
+    wordCache.$longest = longestWordLength;
+    return wordCache;
 });
 
 wordSchema.static('random', async (length = 0) => {
@@ -32,11 +57,6 @@ wordSchema.static('random', async (length = 0) => {
         }
     }
     return word.word || false;
-});
-
-wordSchema.static('addWords', async(words) => {
-    await mongoose.model('Word').deleteMany({}).exec();
-    const result = mongoose.model('Word').insertMany(words);
 });
 
 wordSchema.static('suppressWord', async(word) => {

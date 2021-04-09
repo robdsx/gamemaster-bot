@@ -9,29 +9,21 @@ client.commands = new Discord.Collection();
 
 // Load application modules
 const cache = require('./cache');
-const guildModule = require('./modules/guild');
-const guild = require('./modules/guild');
-const embed = require('./modules/embed');
+const Guild = require('./models/guild');
+const Word = require('./models/word');
+const messageBuilder = require('./helpers/message-builder');
 
 // Define who is a developer (and can use dev only commands)
 const developers = ['770987624738455592'];
 
 // Connect to database first, then do startup tasks
 mongoose.connect(process.env.DB_CONNECTION_STRING, { useNewUrlParser: true, useUnifiedTopology: true, useFindAndModify: false, retryWrites: true })
-    .then(console.log(`Connected to database`))
-    .catch(err => {
-        console.error(`Couldn't connect to database: ${err}`);
-    })
     .then(async () => {
-        // Cache loads some commonly used info from the database into memory
-        console.log('Populating cache, this might take a while...');
-        await cache.populate();
-        console.log('Cache populated');  
-    })
-    .catch(err => {
-        console.error(err);
-    })
-    .then(() => {
+        console.log(`Connected to database`);
+        // Load guild and word data into cache
+        console.log('Populating cache...');
+        cache.set('guilds', await Guild.cacheData());
+        cache.set('words', await Word.cacheData());
         // Load command handlers
         const commandHandlers = fs.readdirSync('./command-handlers').filter(file => file.endsWith('.js'));
         for (const file of commandHandlers) {
@@ -42,7 +34,6 @@ mongoose.connect(process.env.DB_CONNECTION_STRING, { useNewUrlParser: true, useU
         client.login(process.env.BOT_TOKEN);
     })
     .catch(err => {
-        console.error(`Startup error:`);
         console.error(err);
     });
 
@@ -60,11 +51,13 @@ client.on('error', err => {
 client.on('guildCreate', async guild => {
     // Register the server, adding it to the database (if not already there)
     try {
-        guildModule.register(guild);
+        const guild = new Guild({
+            guildID: guild.id
+        });
     } catch(err) {
-        console.error(`Couldn't create entry for guild ${guild.name} / ${guild.id} in the database: ${err}`);
+        console.error(`Couldn't create entry for guild ${guild.name} <${guild.id}> in the database: ${err}`);
     }
-    console.log(`Bot added to server: ${guild.name}`);
+    console.log(`Bot added to server: ${guild.name} <${guild.id}>`);
 });
 
 // Client kicked/removed from guild (server) event handler
@@ -74,11 +67,14 @@ client.on('guildDelete', guild => {
 
 // Client received message event handler
 client.on('message', async message => {
+    console.log(`Received ${message.content}`);
     // What command prefix is this server using?
-    let prefix = cache.guilds[message.guild.id].prefix;
+    let prefix = cache.get('guilds')[message.guild.id].prefix;
     // If they forgot the prefix, respond to the default with a reminder
-    if(message.content.startsWith('.prefixreminder')) {
-        message.channel.send(embed.generate('generic', '', `My command prefix is set to **${prefix}**`));
+    if(message.content.startsWith('.?')) {
+        message.channel.send(messageBuilder.embed(`My command prefix is set to **${prefix}**`, {
+            template: 'generic'
+        }));
         return;
     }
     // We're not interested in the message if it doesn't start with our prefix or is from another bot
@@ -86,33 +82,31 @@ client.on('message', async message => {
     // Get an array of the args
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
-    // Respond to the 'help' command
-    if(commandName === 'help' && args.length) {
-        if(client.commands.has(args[0])) {
-            message.channel.send(client.commands.get(args[0]).description);
-        }
-        return;
-    }
     // Check if the command exists and invoke its handler if so (and the member has permission to)
-    if(!client.commands.has(commandName)) return;
+    const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
+    if(!command) return;
     try {
-        let command = await client.commands.get(commandName);
-        if(command.flags && command.flags.developerOnly && !developers.includes(message.member.id)) {
-            message.channel.send(embed.generate('disallowed', 'Developers only', `Sorry <@${message.author.id}>, only my developers can use this command.`));
-            return;
+        if(command.permissions) {
+            const authorPermissions = message.channel.permissionsFor(message.author);
+            let authorised = false;
+            command.permissions.forEach(permission => {
+                if(authorPermissions.has(permission)) {
+                    authorised = true;
+                }
+            });
+            if(!authorised) {
+                message.channel.send(messageBuilder.embed(`Sorry <@${message.author.id}>, you can't use this command!`, {
+                    template: 'disallowed',
+                    title: 'Not allowed'
+                    })
+                );
+                return;
+            }
         }
-        if(command.flags && command.flags.adminOnly && !message.member.hasPermission('ADMINISTRATOR')) {
-            message.channel.send(embed.generate('disallowed', 'Administrators only', `Sorry <@${message.author.id}>, only administrators of this server can use this command.`));
-            return;
-        }
-        console.log(`[${message.guild.id}] executing command: ${message}`);
+        console.log(`Executing ${command.name}`);
         await command.execute(message, args);
     } catch(err) {
         message.channel.send(embed.generate('error', commandName, "Sorry, I couldn't execute that command :sweat: please try again later."));
-        if(cache.guilds[message.guild.id].lastErrors.length > 4) {
-            cache.guilds[message.guild.id].lastErrors.shift();
-        }
-        cache.guilds[message.guild.id].lastErrors.push(err);
         console.error(`[${message.guild.id}/${commandName}]: Error executing command: ${err.name}`);
         console.error(err);
     }
