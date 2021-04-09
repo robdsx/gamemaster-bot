@@ -2,12 +2,13 @@ const Discord = require('discord.js');
 const Hangman = require('../models/hangman');
 const { update } = require('../models/word');
 const Word = require('../models/word');
-const words = require('../cache').get('words');
-const embed = require('../modules/embed');
+const cache = require('../cache');
+const messageBuilder = require('../helpers/message-builder');
 const Chance = require('chance');
 const chance = new Chance();
 
 const activeGames = new Map();
+const sleepingGames = new Map();
 
 class HangmanGame {
     constructor(message, word) {
@@ -33,7 +34,7 @@ class HangmanGame {
     }   
 
     async messageHandler(message) {
-        this.collector.resetTimer({ time: 60000 });
+        this.collector.resetTimer({ time: 90000 });
         if(message.content.length === 1 && /^[a-zA-Z]/.test(message.content)) {
             let letter = message.content.toLowerCase();
             if(this.guessedLetters.indexOf(letter) > -1) {
@@ -148,7 +149,7 @@ class HangmanGame {
     async update(message, lastAction) {
         if(this.messageWaiting) return;
         this.messageWaiting = true;
-        let description = `Welcome to hangman, <@${message.author.id}>! For instructions, react with :grey_question:, :mag_right: for a hint or :flag_white: to give up`;
+        let description = `React with :grey_question: for instructions, :mag_right: for a hint or :flag_white: to give up`;
         if(lastAction) {
             if(lastAction.from === 'hint') {
                 description = `:sparkles: **Your hint revealed the letter :regional_indicator_${lastAction.letter.toLowerCase()}:!** :sparkles:`;
@@ -162,6 +163,9 @@ class HangmanGame {
             }
             if(lastAction.guess) {
                 description = `:x: **Sorry, the word isn't '${lastAction.guess}', you've got ${this.livesLeft} guesses left!**`
+            }
+            if(lastAction.resume) {
+                description = `:wave: Welcome back, <@${message.author.id}>! I've resumed your previous game.`;
             }
         }
         const wordAsArray = this.word.split('');
@@ -218,16 +222,21 @@ class HangmanGame {
             }
         }
 
-        hintStatus = (this.usedHint) ? "You've used your hint" : "Hint is available (just say 'hint'), but it'll lower your final score.";
-        const reply = embed.generate('generic', `${message.author.username}'s hangman game`, description)
-                        .addField('Word', word)
-                        .addField('Guesses left', lives, true )
-                        .addField('Letters guessed', lettersGuessed || 'None yet', true )
-                        .setFooter(hintStatus)
-                        .setThumbnail(this.avatarURL);
+        hintStatus = (this.usedHint) ? "Hint used" : "Hint available";
+        const reply = messageBuilder.embed(description, {
+            title: `${message.author.username}'s hangman game`,
+            fields: [
+                ['Word', word],
+                ['Guesses left', lives, true],
+                ['Letters guessed', lettersGuessed || 'None yet', true],
+            ],
+            footer: hintStatus,
+            thumbnail: this.avatarURL
+        });
         const sentMessage = await this.sendMessage(message.channel, reply);
         this.messageWaiting = false;
         this.lastMessageID = sentMessage.id;
+        this.lastSentMessage = sentMessage;
         sentMessage.react('❔');
         if(!this.usedHint) {
             sentMessage.react('🔎');
@@ -242,7 +251,7 @@ class HangmanGame {
                             '2. Guess the whole word by saying **guess word** *word*, e.g. **guess word tremor**\n' +
                             '3. If you get stuck, you can reveal a letter by saying **hint** or reacting :mag_right: but your final score will be lower\n' +
                             '4. Want to give up? Just say **I give up** or react :flag_white: \n\n' +
-                            'If you don\'t take any action within 90 seconds, the game will end automatically. Longer words are worth more points! You can choose the length of the word, just add a number to the command like .hangman **5**';
+                            'If you don\'t take any action within 90 seconds, the game will sleep until you resume it. Longer words are worth more points! You can choose the length of the word, just add a number to the command like .hangman **5**';
                 await this.sendMessage(message.channel, reply);
             }
             if(reaction.emoji.name === '🔎' && !this.usedHint) {
@@ -264,6 +273,20 @@ class HangmanGame {
         });
     }
 
+    resume(message) {
+        this.update(message, {
+            lastAction: 'resume'
+        })
+        const filter = (m) => m.author.id === this.initiatingMemberID;
+        this.collector = message.channel.createMessageCollector(filter, { time: 90000 })
+        this.collector.on('collect', message => {
+            this.messageHandler(message);
+        });
+        this.collector.on('end', async (collected, reason) => {
+            await this.end(reason);
+        });
+    }
+
     start(message) {
         this.update(message);
         const filter = (m) => m.author.id === this.initiatingMemberID;
@@ -277,9 +300,10 @@ class HangmanGame {
     }
 
     async end(reason) {
-        console.log('Hangman game ended: ' + reason);
+        this.lastSentMessage.reactions.removeAll().catch(err => console.error(err));
         switch(reason) {
             case "GAVE_UP":
+                await this.saveResult(0);
                 await this.sendMessage(this.message.channel, `Giving up so soon, <@${this.initiatingMemberID}>? Well, the word was **${this.word}**!`);
                 await this.sendMessage(this.message.channel, `:question: Was this word too difficult, obscure or not really one word? Send **.flagword ${this.word}** to flag it for removal from my database.`);
             break;
@@ -297,10 +321,14 @@ class HangmanGame {
             break;
 
             case "time":
-                await this.sendMessage(this.message.channel, `Hey <@${this.initiatingMemberID}>, your hangman game has timed out due to inactivity.`);
+                await this.sendMessage(this.message.channel, `Hey <@${this.initiatingMemberID}>, your hangman game has gone to sleep due to inactivity. You can start it again with .hangman`);
             break;
         }
-        activeGames.delete(`${this.guildID}.${this.initiatingMemberID}`);
+        if(reason === 'time') {
+            const game = await activeGames.get(`${this.guildID}.${this.initiatingMemberID}`);
+            await sleepingGames.set(`${this.guildID}.${this.initiatingMemberID}`, game);
+        }
+        await activeGames.delete(`${this.guildID}.${this.initiatingMemberID}`);
     }
 }
 
@@ -309,27 +337,41 @@ async function isAlreadyPlaying(guildID, memberID) {
     return typeof isAlreadyPlaying !== 'undefined';
 }
 
+async function hasSleepingGame(guildID, memberID) {
+    const hasSleepingGame = await sleepingGames.get(`${guildID}.${memberID}`);
+    return typeof hasSleepingGame !== 'undefined';    
+}
+
 async function execute(message, args) {
     if(await isAlreadyPlaying(message.guild.id, message.author.id)) {
-        this.sendMessage(message.channel, `Hey <@${message.author.id}>, you're already playing a game of hangman! If you want to quit your current game, just say 'I give up'`);
+        message.channel.send(`Hey <@${message.author.id}>, you're already playing a game of hangman! If you want to quit your current game, just say 'I give up'`);
+        return;
+    }
+    if(await hasSleepingGame(message.guild.id, message.author.id)) {
+        const sleepingGame = await sleepingGames.get(`${message.guild.id}.${message.author.id}`);
+        await activeGames.set(`${message.guild.id}.${message.author.id}`, sleepingGame);
+        await sleepingGames.delete(`${message.guild.id}.${message.author.id}`);
+        const game = await activeGames.get(`${message.guild.id}.${message.author.id}`);
+        game.resume(message);
         return;
     }
     try {
         let wordLength = false;
+        const words = cache.get('words');
         if(args[0] && !isNaN(args[0])) {
-            if(args[0] < words.lowest) {
-                this.sendMessage(message.channel, `Sorry <@${message.author.id}>, the shortest word length you can choose is **${words.lowest}** - wouldn't be fun if it was *too* easy!`);
+            if(args[0] < words.$shortest) {
+                message.channel.send(`Sorry <@${message.author.id}>, the shortest word length you can choose is **${words.$shortest}** - wouldn't be fun if it was *too* easy!`);
                 return;
             }
-            if(args[0] > words.highest) {
-                this.sendMessage(message.channel, `Sorry <@${message.author.id}>, the longest word length you can choose is **${words.highest}** (that's enough of a challenge, right?)`);
+            if(args[0] > words.$longest) {
+                message.channel.send(`Sorry <@${message.author.id}>, the longest word length you can choose is **${words.$longest}** (that's enough of a challenge, right?)`);
                 return;
             }
             wordLength = args[0];
         }
-        const randomLength = wordLength || chance.integer({ min: words.lowest, max: words.highest });
-        const randomWord = chance.integer({ min: 0, max: words.list[randomLength].length - 1 });
-        const word = words.list[randomLength][randomWord];
+        const randomLength = wordLength || chance.integer({ min: words.$shortest, max: words.$longest });
+        const randomWord = chance.integer({ min: 0, max: words[randomLength].length - 1 });
+        const word = words[randomLength][randomWord];
         console.log('The word is: ' + word);
         const game = new HangmanGame(message, word);
         await activeGames.set(`${message.guild.id}.${message.author.id}`, game);
@@ -342,10 +384,7 @@ async function execute(message, args) {
 
 module.exports = {
 	name: 'hangman',
-	description: embed.generate('generic', `:information_source: hangman`, 'Start a new game of hangman')
-                    .addFields(
-                        { name: 'Command', value: '.hangman' },
-                        { name: 'Options', value: ':grey_question:**wordlength** *Specify the length of the word to guess. The default is random.*'},
-                    ),
+    description: 'Start a new game of hangman',
+    usage: '[word length] *Optional: choose the length of the word to guess*',
 	execute: execute
 };

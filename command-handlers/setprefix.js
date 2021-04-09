@@ -1,40 +1,48 @@
-const embed = require('../modules/embed');
-const guild = require('../modules/guild');
+const messageBuilder = require('../helpers/message-builder');
+const Guild = require('../models/guild');
+const cache = require('../cache');
 
 async function execute(message, args) {
     let reply;
-    if(!message.member.hasPermission("ADMINISTRATOR")) {
-        reply = embed.generate('disallowed', 'Set prefix', `Sorry **${message.member.displayName}**, you need to be an administrator to use this command!`);
-    }
     if(typeof args === 'undefined' || !args.length) {
-        reply = embed.generate('incomplete', 'Set prefix', "Please specify what prefix to use, e.g. 'setprefix **?**'");
-        message.channel.send(reply);
+        reply = messageBuilder.embed("Please specify what prefix to use, e.g. 'setprefix **?**'", {
+            template: 'incomplete',
+            title: 'Set prefix'
+        });
+        await message.channel.send(reply);
         return; 
     }
-    if(args[0].length !== 1) {
-        reply = embed.generate('warning', 'Set prefix', "That isn't a valid prefix, it must be a single character.");     
+    if(args[0].length > 2) {
+        reply = messageBuilder.embed("The prefix must be no more than two characters long.", {
+            template: 'warning',
+            title: 'Set prefix'
+        });
+        await message.channel.send(reply);
+        return; 
     }
-    if(!reply) {
-        let newPrefix = args[0];
-        let result = await guild.setPrefix(message.guild.id, newPrefix);
-        if(!result) {
-            reply = embed.generate('error', 'Set prefix', "Sorry, I couldn't execute this command right now. Try again later.");
-        } else {
-            reply = embed.generate('success', 'Set prefix', `My command prefix has been updated to **${newPrefix}**`);
-        }
+    let newPrefix = args[0];
+    const result = await Guild.setPrefix(message.guild.id, newPrefix);
+    if(!result) {
+        reply = messageBuilder.embed("Sorry, I couldn't change the prefix at the moment - try again later.", {
+                    template: 'error',
+                    title: 'Set prefix'
+                });
+    } else {
+        const guild = cache.get('guilds');
+        cache.set('guilds', guild[message.guild.id].prefix = result);
+        reply = messageBuilder.embed(`My command prefix has been updated to **${newPrefix}**`, {
+                    template: 'success',
+                    title: 'Set prefix'
+                });
     }
     message.channel.send(reply);
 }
 
 module.exports = {
 	name: 'setprefix',
-	description: embed.generate('generic', `:information_source: setprefix`, 'Set the prefix used to invoke commands')
-                    .addFields(
-                        { name: 'Command', value: '.setprefix' },
-                        { name: 'Arguments', value: '**[Prefix]** *A single character to be used as the new prefix e.g. !*' },
-                    ),
-    flags: {
-        adminOnly: true
-    },
+	description: 'Sets the prefix used to invoke the bot commands. The default is a period. A prefix must be no longer than two characters.',
+    aliases: ['sp'],
+    usage: 'setprefix [new prefix]',
+    permissions: ['MANAGE_GUILD', 'ADMINISTRATOR'],
 	execute: execute
 };

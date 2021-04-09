@@ -1,6 +1,6 @@
 const Discord = require('discord.js');
 const Hangman = require('../models/hangman');
-const embed = require('../modules/embed');
+const messageBuilder = require('../helpers/message-builder');
 
 const supportedGames = {
     'hangman': Hangman.leaderboard
@@ -29,7 +29,11 @@ class Leaderboard {
                 if(position ==   '3') prefix = ':third_place:';
                 list += `${prefix} **${memberName.username}#${memberName.discriminator}** - total **${score}**, average: ${avgScore}\n`;
             }
-            reply = embed.generate('generic', ':scroll: Hangman leaderboard', list).setFooter(`Page ${this.page} of ${totalPages}`);
+            reply = messageBuilder.embed(list, {
+                template: 'generic',
+                title: ':scroll: Hangman leaderboard',
+                footer: `Page ${this.page} of ${totalPages}`
+            })
         }
         if(this.botMessage) {
             await this.botMessage.reactions.removeAll();
@@ -97,10 +101,7 @@ async function execute(message, args) {
 
 module.exports = {
 	name: 'leaderboard',
-	description: embed.generate('generic', `:information_source: leaderboard`, 'Show the leaderboard for a game')
-                    .addFields(
-                        { name: 'Command', value: '.leaderboard' },
-                        { name: 'Options', value: '**[game]** *The name of the game (only hangman currently available)*' },
-                    ),
+	description: 'Show the leaderboard for hangman',
+    aliases: ['lb', 'scores'],
 	execute: execute
 };

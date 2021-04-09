@@ -1,21 +1,22 @@
 const si = require('systeminformation');
-const embed = require('../modules/embed');
+const messageBuilder = require('../helpers/message-builder');
+const package = require('../package.json');
 const cache = require('../cache');
 
 function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
-
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
 async function execute(message, args) {
-    const reply = embed.generate('generic', ':wrench: System status', '');
+    const reply = messageBuilder.embed('', {
+        template: 'generic',
+        title: ':wrench: Bot status'
+    });
     const load = await si.currentLoad();
     const mem = await si.mem();
     const status = {
@@ -45,8 +46,8 @@ async function execute(message, args) {
         },
         memory: () => {
             let flag = ':green_circle:';
-            let memoryUsage = `${formatBytes(mem.used)} of ${formatBytes(mem.total)}`;
-            let memoryPercentage = (mem.used / mem.total * 100);
+            let memoryUsage = `${formatBytes(mem.active)} of ${formatBytes(mem.total)}`;
+            let memoryPercentage = (mem.active / mem.total * 100);
             if(memoryPercentage > 75) {
                 flag = ':yellow_circle:';
             }
@@ -66,16 +67,13 @@ async function execute(message, args) {
         { name: 'Process memory usage', value: status.process(), inline: true },
         { name: 'System memory usage', value: status.memory(), inline: true }
     );
-    reply.setFooter(`Currently serving ${Object.keys(cache.guilds).length} servers`);
+    reply.setFooter(`Bot version ${package.version}`);
     message.channel.send(reply);
 }
 
 module.exports = {
-	name: 'systemstatus',
-	description: embed.generate('generic', `:information_source: systemstatus`, 'Get status information about the bot and the system')
-                    .addFields(
-                        { name: 'Command', value: '.systemstatus' },
-                        { name: 'Arguments', value: 'None' },
-                    ),
+	name: 'status',
+	description: 'Get status information about the bot and the system',
+    aliases: ['systemstatus', 'botstatus', 'stat', 'st'],
 	execute: execute
 };
