@@ -67,7 +67,6 @@ client.on('guildDelete', guild => {
 
 // Client received message event handler
 client.on('message', async message => {
-    console.log(`Received ${message.content}`);
     // What command prefix is this server using?
     let prefix = cache.get('guilds')[message.guild.id].prefix;
     // If they forgot the prefix, respond to the default with a reminder
@@ -85,6 +84,7 @@ client.on('message', async message => {
     // Check if the command exists and invoke its handler if so (and the member has permission to)
     const command = client.commands.get(commandName) || client.commands.find(cmd => cmd.aliases && cmd.aliases.includes(commandName));
     if(!command) return;
+    console.log(`Command is: ${command.name}, with args: ${args} [length: ${args.length}; contents: ${args[0]}]`);
     try {
         if(command.permissions) {
             const authorPermissions = message.channel.permissionsFor(message.author);
@@ -103,15 +103,23 @@ client.on('message', async message => {
                 return;
             }
         }
-        console.log(`Executing ${command.name}`);
-        await command.execute(message, args);
+        await command.execute(message, args, client);
     } catch(err) {
-        message.channel.send(embed.generate('error', commandName, "Sorry, I couldn't execute that command :sweat: please try again later."));
+        message.channel.send(messageBuilder.embed("Sorry, I couldn't execute that command :sweat: please try again later.", {
+            template: 'error',
+            title: command.name,
+            footer: err.name
+        }));
         console.error(`[${message.guild.id}/${commandName}]: Error executing command: ${err.name}`);
         console.error(err);
     }
 });
 
 process.on('unhandledRejection', error => {
-	if(error.name === 'DiscordAPIError') return;
+    if(error.name === 'DiscordAPIError') {
+        console.warn(error);
+        return;
+    }
+    console.error(error);
+	if(error.name === 'DiscordAPIError');
 });
