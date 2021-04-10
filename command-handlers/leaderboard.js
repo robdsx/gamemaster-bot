@@ -19,7 +19,7 @@ class Leaderboard {
             for(let i = 0; i < results.data.length; i++) {
                 const result = results.data[i];
                 const position = (this.page === 1) ? i + 1 : (this.page * this.count) + i + 1;
-                const memberName = await this.message.client.users.fetch(result.memberId);
+                const memberName = await this.message.client.users.fetch(result.memberId) || result.memberId;
                 const score = result.totalScore;
                 const avgScore = result.averageScore;
                 const gamesPlayed = result.gamesPlayed;
