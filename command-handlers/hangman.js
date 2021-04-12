@@ -415,7 +415,7 @@ class HangmanGame {
     // Calculates the player's score
     getScore() {
         const baseScore = 50;
-        const lettersUnrevealedBonus = 8 * (this.word.length - this.guessedLetters.length);
+        const lettersUnrevealedBonus = (8 * this.word.length) - this.guessedLetters.length;
         const hintNotUsedBonus = (this.hintUsed) ? 0 : 25;
         const wordLengthBonus = 4 * (this.word.length - 5);
         return baseScore + lettersUnrevealedBonus + hintNotUsedBonus + wordLengthBonus;
@@ -457,6 +457,7 @@ class HangmanGame {
         if(!playerRecord) return false;
         let latestGameResults = '';
         for(let i = 0; i < playerRecord.games.length; i++) {
+            if(i === 5) break;
             if(playerRecord.games[i].won) {
                 latestGameResults += ':white_check_mark: ';
             } else {
@@ -531,7 +532,7 @@ async function execute(message, args, client) {
                         '-If you get stuck, you can reveal a letter using your hint: **.hangman hint**\n\n' +
                         '- You can end the game at any time by saying **.hangman surrender**, but it will be recorded as a loss\n\n' +
                         'The less guesses you need to get the word, the higher your score. Longer words are worth more points. Using a hint will lower your final score!\n\n' +
-                        'You can see the leaderboard with **.leaderboard**, and your personal stats with **.hangman stats** (or someone else\'s with **.hangman stats @User**';
+                        'You can see the leaderboard with **.hangman leaderboard**, and your personal stats with **.hangman stats** (or someone else\'s with **.hangman stats @User**';
         const reply = messageBuilder.embed(description, {
             title: 'How to play Hangman'
         });
