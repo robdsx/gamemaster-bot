@@ -455,10 +455,10 @@ class HangmanGame {
             games: 1
         }).exec();
         if(!playerRecord) return false;
+        const lastFiveGames = playerRecord.games.slice(-5).reverse();
         let latestGameResults = '';
-        for(let i = 0; i < playerRecord.games.length; i++) {
-            if(i === 5) break;
-            if(playerRecord.games[i].won) {
+        for(let i = 0; i < lastFiveGames.length; i++) {
+            if(lastFiveGames[i].won) {
                 latestGameResults += ':white_check_mark: ';
             } else {
                 latestGameResults += ':x: ';
