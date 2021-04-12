@@ -1,6 +1,7 @@
 const Discord = require('discord.js');
 const Hangman = require('../models/hangman');
 const Word = require('../models/word');
+const leaderboard = require ('./leaderboard');
 const { update } = require('../models/word');
 const cache = require('../cache');
 const messageBuilder = require('../helpers/message-builder');
@@ -242,6 +243,8 @@ class HangmanGame {
             }
         }
 
+        if(!guessedLettersState) guessedLettersState = 'None yet'
+
         // Add the fields to the game message template
         gameTemplate.addFields(
             { name: 'Word', value: wordState },
@@ -449,9 +452,7 @@ class HangmanGame {
         const playerRecord = await Hangman.findOne({ guildId: guild, memberId: user }, {
             gamesPlayed: 1,
             totalScore: 1,
-            games: {
-                $slice: -5
-            }
+            games: 1
         }).exec();
         if(!playerRecord) return false;
         let latestGameResults = '';
@@ -507,8 +508,17 @@ async function getStats(message, args = [], client) {
     await message.channel.send(reply);
 }
 
+async function getLeaderboard(message) {
+    await leaderboard.execute(message, ['hangman']);
+}
+
 async function execute(message, args, client) {
-    // Getting stats?
+    // Get leaderboard
+    if(args[0] === 'leaderboard') {
+        await getLeaderboard(message);
+        return;
+    }
+    // Get stats
     if(args[0] === 'stats') {
         args.shift();
         await getStats(message, args, client);

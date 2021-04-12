@@ -75,7 +75,6 @@ class Leaderboard {
     }
 
     async getLeaderboard(page = 1) {
-        //this.message.channel.startTyping();
         const start = (page === 1) ? 0 : this.count * (page - 1); 
         const results = await supportedGames[this.game].call(null, this.message.guild.id, this.count, start);
         this.page = page;

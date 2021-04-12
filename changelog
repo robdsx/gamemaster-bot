@@ -1,0 +1,6 @@
+Version 1.0.2, 12 April 2021
+============================
+- Fixed a bug with guilds not being saved to database when the bot is added
+- Fixed Hangman win/loss stats being displayed incorrectly
+- Fixed 'false' being shown for letters guess when none have been guessed yet
+- Changed .leaderboard command to .hangman leaderboard

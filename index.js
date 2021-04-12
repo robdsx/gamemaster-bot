@@ -51,13 +51,15 @@ client.on('error', err => {
 client.on('guildCreate', async guild => {
     // Register the server, adding it to the database (if not already there)
     try {
-        const guild = new Guild({
+        const newGuild = new Guild({
             guildID: guild.id
         });
+        const savedGuild = await newGuild.save();
+        console.log(`Bot added to server: ${guild.name} <${guild.id}>`);
+        cache.get('guilds')[guild.id] = savedGuild;
     } catch(err) {
         console.error(`Couldn't create entry for guild ${guild.name} <${guild.id}> in the database: ${err}`);
     }
-    console.log(`Bot added to server: ${guild.name} <${guild.id}>`);
 });
 
 // Client kicked/removed from guild (server) event handler
