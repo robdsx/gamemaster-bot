@@ -459,11 +459,12 @@ class HangmanGame {
         let latestGameResults = '';
         for(let i = 0; i < lastFiveGames.length; i++) {
             if(lastFiveGames[i].won) {
-                latestGameResults += `:white_check_mark: ${lastFiveGames[i].score} `;
+                latestGameResults += `:white_check_mark: `;
             } else {
-                latestGameResults += `:x: ${lastFiveGames[i].score}`;
+                latestGameResults += `:x: `;
             }
         }
+
         const gamesWonPercentage = (playerRecord.gamesWonLost.won / playerRecord.gamesPlayed) * 100;
         const gamesLostPercentage = (playerRecord.gamesWonLost.lost / playerRecord.gamesPlayed) * 100;
         return {
