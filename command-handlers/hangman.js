@@ -22,7 +22,7 @@ class HangmanGame {
         GAME_HINT_ALREADY_USED: '<@{{player}}>, you\'ve already used up your hint for this game! No more hints! :angry:',
         GAME_GIVE_UP: 'Giving up so soon, <@{{player}}>? The word was **{{word}}**!',
         GAME_WON: ':partying_face: Yay <@{{player}}>, you got the word: **{{word}}**! Well done. You\'ve scored **{{score}}** points, and you solved it with {{guesses}} guesses remaining :partying_face:',
-        GAME_LOST: 'Oh no <@{{player}}>, you\'re out of lives :frowning2: that was a tough one, but I can tell you the word was **{{word}}** ! Better luck next time.',
+        GAME_LOST: 'Oh no <@{{player}}>, you\'re out of guesses :frowning2: that was a tough one, but I can tell you the word was **{{word}}** ! Better luck next time.',
         GAME_SLEEP: 'Hey <@{{player}}>, your hangman game has gone to sleep due to inactivity :sleeping: you can start it again with **.hangman**',
         GAME_RESUME: 'Welcome back <@{{player}}>! You didn\'t finish your last game, so I saved it for you. Here\'s the story so far...',
         WORD_SURVEY: ':question: Was this word too difficult, obscure or not really one word? Send **.flagword {{word}} to flag it for removal from my database.',
@@ -41,6 +41,7 @@ class HangmanGame {
         this.word = wordToGuess;
         this.isMultiPlayerGame = isMultiPlayerGame;
         this.guessedLetters = [];
+        this.correctlyGuessedLetters = [];
         this.guessesAtStart = 7;
         this.guessesLeft = this.guessesAtStart;
         this.hintUsed = false;
@@ -311,6 +312,7 @@ class HangmanGame {
                 // Check if it's in the word
                 if(this.word.toLowerCase().indexOf(letter.toLowerCase()) > -1) {
                     // It is!
+                    this.correctlyGuessedLetters.push(letter);
                     this.state.action = 'GAME_LETTER_CORRECT';
                 } else {
                     // It isn't :(
@@ -337,6 +339,7 @@ class HangmanGame {
                 if(lettersInWord.length < 1) return;
                 const letter = lettersInWord[chance.integer({ min: 0, max: lettersInWord.length - 1})];
                 this.guessedLetters.push(letter);
+                this.correctlyGuessedLetters.push(letter);
                 this.state.input = letter;
             }
             validInput = true;   
@@ -415,7 +418,7 @@ class HangmanGame {
     // Calculates the player's score
     getScore() {
         const baseScore = 50;
-        const lettersUnrevealedBonus = (8 * this.word.length) - this.guessedLetters.length;
+        const lettersUnrevealedBonus = 8 * (this.word.length - this.correctlyGuessedLetters.length);
         const hintNotUsedBonus = (this.hintUsed) ? 0 : 25;
         const wordLengthBonus = 4 * (this.word.length - 5);
         return baseScore + lettersUnrevealedBonus + hintNotUsedBonus + wordLengthBonus;
