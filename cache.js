@@ -15,7 +15,8 @@ const cache = (function(){
         },
         get: function(cacheName) {
             return cacheData[cacheName];
-        }
+        },
+        cacheData: cacheData
     }
 })();
 

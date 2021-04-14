@@ -9,6 +9,11 @@ const Chance = require('chance');
 const chance = new Chance();
 
 const games = {};
+const cooldownList = {};
+
+cache.set('hangman', {
+    cooldown: 30000
+});
 
 class HangmanGame {
 
@@ -103,6 +108,7 @@ class HangmanGame {
 
     // endGame() handles all the ways a game can end
     async endGame() {
+        cooldownList[this.startingPlayer.id] = Date.now();
         if(this.messageCollector) await this.messageCollector.stop();
         if(this.reactionCollector) await this.reactionCollector.stop();
         await this.deleteLastMessage();
@@ -529,6 +535,21 @@ async function execute(message, args, client) {
         await getStats(message, args, client);
         return;
     }
+    // Set cooldown
+    if(args[0] === 'cooldown' && !isNaN(args[1])) {
+        if(!message.channel.permissionsFor(message.author).has('ADMINISTRATOR')) {
+            await message.channel.send(messageBuilder.embed(`Sorry <@${message.author.id}>, you don't have permission to use this command.`, {
+                template: 'disallowed'
+            }));
+        } else {
+            const cooldownMilliseconds = args[1] * 1000;
+            cache.cacheData.hangman.cooldown = cooldownMilliseconds;
+            await message.channel.send(messageBuilder.embed(`The cooldown for hangman games has been set to **${args[1]} seconds.**`, {
+                template: 'success'
+            }));
+        }
+        return;
+    }
     if(args[0] === 'help') {
         const description = 'The goal is to guess the word. You\'ll be able to see how many letters are in the word.\n\n' +
                         '- You can guess which letter might be in the world by just typing the letter, e.g. **g**\n\n' +
@@ -568,6 +589,16 @@ async function execute(message, args, client) {
             }
             message.channel.send(`<@${message.author.id}>, you're already playing a game of hangman! If you want to quit your current game, just say **.hangman surrender**`);
             return;
+        }
+    }
+    if(cooldownList[message.author.id]) {
+        const cooldown = cache.get('hangman').cooldown;
+        const timeLeft = Math.abs(Date.now() - cooldownList[message.author.id]);
+        if(timeLeft < cooldown) {
+            await message.channel.send(`:hourglass: <@${message.author.id}>, you need to wait another **${Math.ceil((cooldown / 1000) - (timeLeft / 1000))}** seconds before you can play again`);
+            return
+        } else {
+            delete cooldownList[message.author.id];
         }
     }
     // Start a new game
